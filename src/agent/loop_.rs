@@ -13,6 +13,7 @@ use std::fmt::Write;
 use std::io::Write as _;
 use std::sync::{Arc, LazyLock};
 use std::time::Instant;
+use tokio::io::AsyncBufReadExt;
 use uuid::Uuid;
 
 /// Minimum characters per chunk when relaying LLM text to a streaming draft.
@@ -21,6 +22,10 @@ const STREAM_CHUNK_MIN_CHARS: usize = 80;
 /// Default maximum agentic tool-use iterations per user message to prevent runaway loops.
 /// Used as a safe fallback when `max_tool_iterations` is unset or configured as zero.
 const DEFAULT_MAX_TOOL_ITERATIONS: usize = 10;
+
+/// Timeout in seconds for LLM response in interactive (CLI) mode.
+/// Matches the channel-mode timeout to ensure consistent behaviour across runtimes.
+const INTERACTIVE_LLM_TIMEOUT_SECS: u64 = 300;
 
 static SENSITIVE_KEY_PATTERNS: LazyLock<RegexSet> = LazyLock::new(|| {
     RegexSet::new([
@@ -1451,13 +1456,14 @@ pub async fn run(
 
         // Persistent conversation history across turns
         let mut history = vec![ChatMessage::system(&system_prompt)];
+        let mut stdin_reader = tokio::io::BufReader::new(tokio::io::stdin());
 
         loop {
             print!("> ");
             let _ = std::io::stdout().flush();
 
             let mut input = String::new();
-            match std::io::stdin().read_line(&mut input) {
+            match stdin_reader.read_line(&mut input).await {
                 Ok(0) => break,
                 Ok(_) => {}
                 Err(e) => {
@@ -1488,7 +1494,7 @@ pub async fn run(
                     let _ = std::io::stdout().flush();
 
                     let mut confirm = String::new();
-                    if std::io::stdin().read_line(&mut confirm).is_err() {
+                    if stdin_reader.read_line(&mut confirm).await.is_err() {
                         continue;
                     }
                     if !matches!(confirm.trim().to_lowercase().as_str(), "y" | "yes") {
@@ -1543,25 +1549,35 @@ pub async fn run(
 
             history.push(ChatMessage::user(&enriched));
 
-            let response = match run_tool_call_loop(
-                provider.as_ref(),
-                &mut history,
-                &tools_registry,
-                observer.as_ref(),
-                provider_name,
-                model_name,
-                temperature,
-                false,
-                Some(&approval_manager),
-                "cli",
-                config.agent.max_tool_iterations,
-                None,
+            let response = match tokio::time::timeout(
+                std::time::Duration::from_secs(INTERACTIVE_LLM_TIMEOUT_SECS),
+                run_tool_call_loop(
+                    provider.as_ref(),
+                    &mut history,
+                    &tools_registry,
+                    observer.as_ref(),
+                    provider_name,
+                    model_name,
+                    temperature,
+                    false,
+                    Some(&approval_manager),
+                    "cli",
+                    config.agent.max_tool_iterations,
+                    None,
+                ),
             )
             .await
             {
-                Ok(resp) => resp,
-                Err(e) => {
+                Ok(Ok(resp)) => resp,
+                Ok(Err(e)) => {
                     eprintln!("\nError: {e}\n");
+                    continue;
+                }
+                Err(_) => {
+                    eprintln!(
+                        "\nRequest timed out after {INTERACTIVE_LLM_TIMEOUT_SECS}s. Please try again.\n"
+                    );
+                    history.pop(); // Remove the unanswered user turn to keep history consistent
                     continue;
                 }
             };
