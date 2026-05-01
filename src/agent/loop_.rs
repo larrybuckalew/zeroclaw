@@ -1549,6 +1549,9 @@ pub async fn run(
 
             history.push(ChatMessage::user(&enriched));
 
+            print!("\nThinking...");
+            let _ = std::io::stdout().flush();
+
             let response = match tokio::time::timeout(
                 std::time::Duration::from_secs(INTERACTIVE_LLM_TIMEOUT_SECS),
                 run_tool_call_loop(
@@ -1582,9 +1585,14 @@ pub async fn run(
                 }
             };
             final_output = response.clone();
+            let output = if response.is_empty() {
+                "\n(No response received — check your provider configuration.)\n".to_string()
+            } else {
+                format!("\n{response}\n")
+            };
             if let Err(e) = crate::channels::Channel::send(
                 &cli,
-                &crate::channels::traits::SendMessage::new(format!("\n{response}\n"), "user"),
+                &crate::channels::traits::SendMessage::new(output, "user"),
             )
             .await
             {
