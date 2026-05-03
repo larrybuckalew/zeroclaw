@@ -1075,7 +1075,11 @@ pub(crate) async fn run_tool_call_loop(
                         if r.success {
                             scrub_credentials(&r.output)
                         } else {
-                            format!("Error: {}", r.error.unwrap_or_else(|| r.output))
+                            let err = format!("Error: {}", r.error.unwrap_or_else(|| r.output));
+                            if !silent {
+                                eprintln!("  [tool:{} failed] {err}", call.name);
+                            }
+                            err
                         }
                     }
                     Err(e) => {
@@ -1084,10 +1088,17 @@ pub(crate) async fn run_tool_call_loop(
                             duration: start.elapsed(),
                             success: false,
                         });
-                        format!("Error executing {}: {e}", call.name)
+                        let err = format!("Error executing {}: {e}", call.name);
+                        if !silent {
+                            eprintln!("  [tool:{} error] {e}", call.name);
+                        }
+                        err
                     }
                 }
             } else {
+                if !silent {
+                    eprintln!("  [tool not found] {}", call.name);
+                }
                 format!("Unknown tool: {}", call.name)
             };
 
