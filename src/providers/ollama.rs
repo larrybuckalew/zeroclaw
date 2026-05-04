@@ -93,14 +93,14 @@ impl OllamaProvider {
 
     fn resolve_request_details(&self, model: &str) -> anyhow::Result<(String, bool)> {
         let requests_cloud = model.ends_with(":cloud");
-        let normalized_model = model.strip_suffix(":cloud").unwrap_or(model).to_string();
 
         if requests_cloud && self.is_local_endpoint() {
-            anyhow::bail!(
-                "Model '{}' requested cloud routing, but Ollama endpoint is local. Configure api_url with a remote Ollama endpoint.",
-                model
-            );
+            // Local Ollama daemon handles cloud model routing natively (e.g. kimi-k2.6:cloud).
+            // Pass the full model name including the :cloud tag so Ollama can route it.
+            return Ok((model.to_string(), false));
         }
+
+        let normalized_model = model.strip_suffix(":cloud").unwrap_or(model).to_string();
 
         if requests_cloud && self.api_key.is_none() {
             anyhow::bail!(
@@ -415,14 +415,15 @@ mod tests {
     }
 
     #[test]
-    fn cloud_suffix_with_local_endpoint_errors() {
+    fn cloud_suffix_with_local_endpoint_passes_full_model_name() {
+        // Local Ollama daemon handles cloud routing natively — the full model name
+        // (including :cloud) must be forwarded so Ollama can route it correctly.
         let p = OllamaProvider::new(None, Some("ollama-key"));
-        let error = p
-            .resolve_request_details("qwen3:cloud")
-            .expect_err("cloud suffix should fail on local endpoint");
-        assert!(error
-            .to_string()
-            .contains("requested cloud routing, but Ollama endpoint is local"));
+        let (model, should_auth) = p
+            .resolve_request_details("kimi-k2.6:cloud")
+            .expect("cloud model should be accepted on local endpoint");
+        assert_eq!(model, "kimi-k2.6:cloud");
+        assert!(!should_auth);
     }
 
     #[test]

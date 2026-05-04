@@ -1896,8 +1896,8 @@ impl Default for Config {
             config_path: zeroclaw_dir.join("config.toml"),
             api_key: None,
             api_url: None,
-            default_provider: Some("openrouter".to_string()),
-            default_model: Some("anthropic/claude-sonnet-4".to_string()),
+            default_provider: Some("ollama".to_string()),
+            default_model: Some("kimi-k2.6:cloud".to_string()),
             default_temperature: 0.7,
             observability: ObservabilityConfig::default(),
             autonomy: AutonomyConfig::default(),
@@ -2496,8 +2496,8 @@ mod tests {
     #[test]
     fn config_default_has_sane_values() {
         let c = Config::default();
-        assert_eq!(c.default_provider.as_deref(), Some("openrouter"));
-        assert!(c.default_model.as_deref().unwrap().contains("claude"));
+        assert_eq!(c.default_provider.as_deref(), Some("ollama"));
+        assert!(c.default_model.as_deref().unwrap().contains("kimi"));
         assert!((c.default_temperature - 0.7).abs() < f64::EPSILON);
         assert!(c.api_key.is_none());
         assert!(c.workspace_dir.to_string_lossy().contains("workspace"));
